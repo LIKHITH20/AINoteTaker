@@ -16,6 +16,17 @@ TRANSCRIPTION_CONFIG = {
     'overlap': 0.5               # Overlap between chunks (seconds)
 }
 
+# Speaker Diarization Settings
+SPEAKER_CONFIG = {
+    'enabled': True,             # Enable speaker diarization
+    'speaker_count': 2,          # Expected number of speakers
+    'speaker_labels': ['Interviewer', 'Candidate'],  # Speaker labels
+    'diarization_method': 'simple',  # 'simple' or 'advanced'
+    'confidence_threshold': 0.7,  # Minimum confidence for speaker assignment
+    'segment_min_duration': 0.5,  # Minimum segment duration (seconds)
+    'segment_max_duration': 30.0  # Maximum segment duration (seconds)
+}
+
 # OpenAI API Settings
 OPENAI_CONFIG = {
     'whisper_model': 'whisper-1',    # Whisper model to use
@@ -38,4 +49,12 @@ PROCESSING_CONFIG = {
     'silence_threshold': 0.01,   # Silence detection threshold
     'noise_reduction': True,     # Enable noise reduction
     'normalize_audio': True      # Normalize audio levels
+}
+
+# Real-time Processing Settings
+REALTIME_CONFIG = {
+    'background_processing': True,    # Process transcription in background
+    'show_live_updates': False,      # Don't show live transcript updates
+    'store_intermediate_results': True,  # Store all transcription chunks
+    'final_processing_delay': 1.0    # Delay before final processing (seconds)
 }

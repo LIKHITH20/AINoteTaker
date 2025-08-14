@@ -153,35 +153,42 @@
             border: 1px solid #e2e8f0;
         }
 
-        .live-transcript-item {
-            background: #e6fffa;
-            border-left: 4px solid #38b2ac;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            animation: slideIn 0.3s ease;
+        .transcript-item {
+            background: #f7fafc;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
         }
 
-        .live-transcript-item .timestamp {
+        .transcript-item.interviewer {
+            border-left-color: #38a169;
+            background: #f0fff4;
+        }
+
+        .transcript-item.candidate {
+            border-left-color: #3182ce;
+            background: #ebf8ff;
+        }
+
+        .transcript-item .timestamp {
             color: #718096;
             font-size: 0.8rem;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
+            font-weight: bold;
         }
 
-        .live-transcript-item .text {
+        .transcript-item .speaker {
             color: #2d3748;
-            font-weight: 500;
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .transcript-item .text {
+            color: #2d3748;
+            line-height: 1.6;
         }
 
         .candidate-details {
@@ -274,6 +281,52 @@
             animation: pulse 2s infinite;
         }
 
+        .speaker-stats {
+            background: #f7fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid #e2e8f0;
+        }
+
+        .speaker-stats h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .speaker-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .speaker-stat-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+        }
+
+        .speaker-stat-item .speaker-name {
+            font-weight: bold;
+            color: #4a5568;
+            margin-bottom: 10px;
+        }
+
+        .speaker-stat-item .stat-value {
+            font-size: 1.5rem;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .speaker-stat-item .stat-label {
+            font-size: 0.8rem;
+            color: #718096;
+            text-transform: uppercase;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -293,7 +346,7 @@
     <div class="container">
         <div class="header">
             <h1>🎤 AI Interview Note Taker - Real-time</h1>
-            <p>Live transcription and candidate analysis during interviews</p>
+            <p>Continuous transcription with speaker diarization during interviews</p>
         </div>
 
         <div class="main-content">
@@ -325,16 +378,16 @@
                 <div id="transcriptionStatus" style="display: none;">
                     <div class="transcription-status">
                         <span class="status-dot"></span>
-                        <span>Live transcription active - processing every 3 seconds</span>
+                        <span>Real-time transcription active in background</span>
                     </div>
                 </div>
             </div>
 
             <div class="card transcript-section">
-                <h2>📝 Live Transcript</h2>
+                <h2>📝 Interview Transcript</h2>
                 <div class="transcript-content" id="transcriptContent">
                     <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
-                        Start recording to see live transcription...
+                        Start recording to begin transcription...
                     </p>
                 </div>
             </div>
@@ -359,10 +412,6 @@
         let analyser;
         let canvas = document.getElementById('audioCanvas');
         let ctx = canvas.getContext('2d');
-        
-        // Store live transcripts
-        let liveTranscripts = [];
-        let transcriptContainer = document.getElementById('transcriptContent');
 
         // Initialize audio context
         function initAudioContext() {
@@ -408,11 +457,7 @@
 
                 isRecording = true;
                 recordingStartTime = Date.now();
-                updateStatus(true, 'Recording with live transcription...');
-                
-                // Clear previous transcripts
-                liveTranscripts = [];
-                updateTranscriptDisplay();
+                updateStatus(true, 'Recording with real-time transcription...');
                 
                 // Start duration timer
                 durationInterval = setInterval(updateDuration, 1000);
@@ -447,7 +492,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        displayFinalResults(data.transcript, data.candidate_details);
+                        displayFinalResults(data.transcript, data.candidate_details, data.speaker_stats);
                         updateStatus(false, 'Ready to record');
                     } else {
                         updateStatus(false, 'Error processing audio');
@@ -506,64 +551,85 @@
             draw();
         }
 
-        // Add live transcript
-        function addLiveTranscript(transcript, timestamp) {
-            const transcriptItem = {
-                text: transcript,
-                timestamp: timestamp,
-                time: new Date(timestamp * 1000).toLocaleTimeString()
-            };
+        // Display final results with speaker information
+        function displayFinalResults(transcript, candidateDetails, speakerStats) {
+            // Display transcript with speaker diarization
+            const transcriptContent = document.getElementById('transcriptContent');
             
-            liveTranscripts.push(transcriptItem);
-            updateTranscriptDisplay();
-        }
-
-        // Update transcript display
-        function updateTranscriptDisplay() {
-            if (liveTranscripts.length === 0) {
-                transcriptContainer.innerHTML = `
-                    <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
-                        Start recording to see live transcription...
-                    </p>
-                `;
-                return;
-            }
-
-            let html = '<h3 style="color: #4a5568; margin-bottom: 15px;">📝 Live Interview Transcript</h3>';
-            
-            liveTranscripts.forEach(item => {
-                html += `
-                    <div class="live-transcript-item">
-                        <div class="timestamp">${item.time}</div>
-                        <div class="text">${item.text}</div>
+            if (transcript && transcript !== "No transcript available") {
+                // Parse the transcript to extract speaker information
+                const lines = transcript.split('\n\n');
+                let html = '<h3 style="color: #4a5568; margin-bottom: 20px;">📝 Complete Interview Transcript</h3>';
+                
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        // Extract timestamp, speaker, and text
+                        const match = line.match(/\[([^\]]+)\] ([^:]+): (.+)/);
+                        if (match) {
+                            const timestamp = match[1];
+                            const speaker = match[2];
+                            const text = match[3];
+                            
+                            const speakerClass = speaker.toLowerCase().includes('interviewer') ? 'interviewer' : 'candidate';
+                            
+                            html += `
+                                <div class="transcript-item ${speakerClass}">
+                                    <div class="timestamp">${timestamp}</div>
+                                    <div class="speaker">${speaker}</div>
+                                    <div class="text">${text}</div>
+                                </div>
+                            `;
+                        } else {
+                            // Fallback for lines without speaker info
+                            html += `<div class="transcript-item"><div class="text">${line}</div></div>`;
+                        }
+                    }
+                });
+                
+                transcriptContent.innerHTML = html;
+            } else {
+                transcriptContent.innerHTML = `
+                    <div class="error">
+                        <h3>⚠️ No Transcript Available</h3>
+                        <p>No audio was recorded or transcription failed.</p>
                     </div>
                 `;
-            });
-
-            transcriptContainer.innerHTML = html;
-            
-            // Scroll to bottom
-            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
-        }
-
-        // Display final results
-        function displayFinalResults(transcript, candidateDetails) {
-            // Display final transcript
-            const transcriptContent = document.getElementById('transcriptContent');
-            transcriptContent.innerHTML = `
-                <h3 style="color: #4a5568; margin-bottom: 15px;">📝 Final Interview Transcript</h3>
-                <div style="white-space: pre-wrap; line-height: 1.6;">${transcript}</div>
-            `;
+            }
 
             // Display candidate details
             const candidateDetailsDiv = document.getElementById('candidateDetails');
             
             if (typeof candidateDetails === 'object' && candidateDetails !== null) {
                 let detailsHTML = '<h3 style="color: #4a5568; margin-bottom: 20px;">👤 Candidate Analysis</h3>';
+                
+                // Add speaker statistics if available
+                if (speakerStats && Object.keys(speakerStats).length > 0) {
+                    detailsHTML += '<div class="speaker-stats">';
+                    detailsHTML += '<h3>🎙️ Speaker Participation</h3>';
+                    detailsHTML += '<div class="speaker-stats-grid">';
+                    
+                    Object.entries(speakerStats).forEach(([speaker, stats]) => {
+                        detailsHTML += `
+                            <div class="speaker-stat-item">
+                                <div class="speaker-name">${speaker}</div>
+                                <div class="stat-value">${stats.segments}</div>
+                                <div class="stat-label">Segments</div>
+                            </div>
+                            <div class="speaker-stat-item">
+                                <div class="speaker-name">${speaker}</div>
+                                <div class="stat-value">${stats.words}</div>
+                                <div class="stat-label">Words</div>
+                            </div>
+                        `;
+                    });
+                    
+                    detailsHTML += '</div></div>';
+                }
+                
                 detailsHTML += '<div class="detail-grid">';
                 
                 Object.entries(candidateDetails).forEach(([key, value]) => {
-                    if (key !== 'transcript' && value) {
+                    if (key !== 'transcript' && key !== 'speaker_statistics' && value) {
                         const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                         detailsHTML += `
                             <div class="detail-item">
@@ -598,11 +664,6 @@
         socket.on('audio_data', (data) => {
             // Handle real-time audio data from server if needed
             console.log('Received audio data:', data.timestamp);
-        });
-
-        socket.on('live_transcript', (data) => {
-            console.log('Received live transcript:', data.transcript);
-            addLiveTranscript(data.transcript, data.timestamp);
         });
 
         // Initialize

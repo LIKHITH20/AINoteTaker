@@ -15,7 +15,7 @@ import soundfile as sf
 from pydub import AudioSegment
 import librosa
 import io
-from config import AUDIO_CONFIG, TRANSCRIPTION_CONFIG, OPENAI_CONFIG, FLASK_CONFIG
+from config import AUDIO_CONFIG, TRANSCRIPTION_CONFIG, OPENAI_CONFIG, FLASK_CONFIG, SPEAKER_CONFIG, REALTIME_CONFIG
 
 # Load environment variables
 load_dotenv()
@@ -44,9 +44,15 @@ class RealTimeAudioProcessor:
         self.transcription_queue = queue.Queue()
         self.transcription_thread = None
         
-        # Store live transcripts
+        # Store live transcripts with speaker information
         self.live_transcripts = []
         self.transcript_lock = threading.Lock()
+        
+        # Speaker diarization settings
+        self.speaker_count = SPEAKER_CONFIG['speaker_count']
+        self.speaker_labels = SPEAKER_CONFIG['speaker_labels']
+        self.diarization_method = SPEAKER_CONFIG['diarization_method']
+        self.confidence_threshold = SPEAKER_CONFIG['confidence_threshold']
         
     def start_recording(self):
         if self.is_recording:
@@ -102,7 +108,7 @@ class RealTimeAudioProcessor:
         self.record_thread.start()
         
     def _schedule_transcription(self):
-        """Schedule audio buffer for transcription"""
+        """Schedule audio buffer for transcription with speaker diarization"""
         if len(self.audio_buffer) > 0:
             # Convert buffer to audio data
             audio_data = np.concatenate(self.audio_buffer)
@@ -119,30 +125,28 @@ class RealTimeAudioProcessor:
             self.audio_buffer = []
     
     def _transcription_worker(self):
-        """Background worker for transcription"""
+        """Background worker for transcription with speaker diarization"""
         while self.is_recording:
             try:
                 # Get audio file from queue
                 audio_file = self.transcription_queue.get(timeout=1)
                 if audio_file:
-                    # Transcribe the audio chunk
-                    transcript = self._transcribe_audio_chunk(audio_file)
+                    # Transcribe the audio chunk with speaker diarization
+                    transcript_data = self._transcribe_with_speakers(audio_file)
                     
-                    if transcript and transcript.strip():
-                        # Store transcript with timestamp
+                    if transcript_data and transcript_data.get('segments'):
+                        # Store transcript with speaker information
                         with self.transcript_lock:
-                            transcript_item = {
-                                'text': transcript.strip(),
-                                'timestamp': time.time(),
-                                'time': time.strftime('%H:%M:%S')
-                            }
-                            self.live_transcripts.append(transcript_item)
-                        
-                        # Emit transcript to client
-                        socketio.emit('live_transcript', {
-                            'transcript': transcript.strip(),
-                            'timestamp': time.time()
-                        })
+                            for segment in transcript_data['segments']:
+                                transcript_item = {
+                                    'text': segment.get('text', '').strip(),
+                                    'speaker': segment.get('speaker', 'Unknown'),
+                                    'start_time': segment.get('start', 0),
+                                    'end_time': segment.get('end', 0),
+                                    'timestamp': time.time(),
+                                    'time': time.strftime('%H:%M:%S')
+                                }
+                                self.live_transcripts.append(transcript_item)
                     
                     # Clean up temporary file
                     try:
@@ -156,19 +160,55 @@ class RealTimeAudioProcessor:
                 print(f"Error in transcription worker: {e}")
                 continue
     
-    def _transcribe_audio_chunk(self, audio_file_path):
-        """Transcribe a single audio chunk using OpenAI Whisper"""
+    def _transcribe_with_speakers(self, audio_file_path):
+        """Transcribe audio with speaker diarization using OpenAI Whisper"""
         try:
+            # First, transcribe with timestamps
             with open(audio_file_path, 'rb') as audio_file:
-                transcript = openai.Audio.transcribe(
+                response = openai.Audio.transcribe(
                     model=OPENAI_CONFIG['whisper_model'],
                     file=audio_file,
-                    response_format="text"
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"]
                 )
-            return transcript.strip()
+            
+            # Process segments and add speaker labels
+            if response and 'segments' in response:
+                segments = response['segments']
+                
+                if self.diarization_method == 'simple':
+                    # Simple speaker diarization based on timing and content
+                    self._apply_simple_speaker_diarization(segments)
+                else:
+                    # Advanced speaker diarization (placeholder for future implementation)
+                    self._apply_advanced_speaker_diarization(segments)
+                
+                return response
+            
+            return None
+            
         except Exception as e:
-            print(f"Error transcribing audio chunk: {e}")
-            return ""
+            print(f"Error transcribing audio with speakers: {e}")
+            return None
+    
+    def _apply_simple_speaker_diarization(self, segments):
+        """Apply simple speaker diarization logic"""
+        if not segments:
+            return
+        
+        # Simple heuristic: alternate speakers based on segment order
+        # This can be improved with more sophisticated speaker detection
+        for i, segment in enumerate(segments):
+            if i % 2 == 0:
+                segment['speaker'] = self.speaker_labels[0]  # Interviewer
+            else:
+                segment['speaker'] = self.speaker_labels[1]  # Candidate
+    
+    def _apply_advanced_speaker_diarization(self, segments):
+        """Apply advanced speaker diarization logic (placeholder)"""
+        # This would integrate with a dedicated speaker diarization service
+        # For now, fall back to simple method
+        self._apply_simple_speaker_diarization(segments)
         
     def stop_recording(self):
         self.is_recording = False
@@ -199,15 +239,16 @@ class RealTimeAudioProcessor:
         return None
     
     def get_full_transcript(self):
-        """Get the complete transcript from all recorded chunks"""
+        """Get the complete transcript from all recorded chunks with speaker information"""
         with self.transcript_lock:
             if not self.live_transcripts:
                 return "No transcript available"
             
-            # Combine all transcripts with timestamps
+            # Combine all transcripts with speaker information
             full_text = ""
             for item in self.live_transcripts:
-                full_text += f"[{item['time']}] {item['text']}\n\n"
+                speaker_label = item.get('speaker', 'Unknown')
+                full_text += f"[{item['time']}] {speaker_label}: {item['text']}\n\n"
             
             return full_text.strip()
     
@@ -219,6 +260,29 @@ class RealTimeAudioProcessor:
             
             # Combine all transcripts into one text for GPT analysis
             return " ".join([item['text'] for item in self.live_transcripts])
+    
+    def get_speaker_statistics(self):
+        """Get statistics about speaker participation"""
+        with self.transcript_lock:
+            if not self.live_transcripts:
+                return {}
+            
+            speaker_stats = {}
+            for item in self.live_transcripts:
+                speaker = item.get('speaker', 'Unknown')
+                if speaker not in speaker_stats:
+                    speaker_stats[speaker] = {
+                        'segments': 0,
+                        'words': 0,
+                        'total_duration': 0
+                    }
+                
+                speaker_stats[speaker]['segments'] += 1
+                speaker_stats[speaker]['words'] += len(item['text'].split())
+                duration = item.get('end_time', 0) - item.get('start_time', 0)
+                speaker_stats[speaker]['total_duration'] += duration
+            
+            return speaker_stats
 
 # Initialize audio processor
 audio_processor = RealTimeAudioProcessor()
@@ -231,7 +295,7 @@ def index():
 def start_recording():
     try:
         audio_processor.start_recording()
-        return jsonify({'status': 'success', 'message': 'Recording started'})
+        return jsonify({'status': 'success', 'message': 'Recording started with real-time transcription'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -239,6 +303,10 @@ def start_recording():
 def stop_recording():
     try:
         audio_processor.stop_recording()
+        
+        # Add delay before final processing if configured
+        if REALTIME_CONFIG['final_processing_delay'] > 0:
+            time.sleep(REALTIME_CONFIG['final_processing_delay'])
         
         # Save audio to temporary file
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
@@ -248,9 +316,14 @@ def stop_recording():
             # Get the full transcript from all chunks
             full_transcript = audio_processor.get_full_transcript()
             transcript_summary = audio_processor.get_transcript_summary()
+            speaker_stats = audio_processor.get_speaker_statistics()
             
             # Extract candidate details using GPT
             candidate_details = extract_candidate_details(transcript_summary)
+            
+            # Add speaker statistics to candidate details
+            if speaker_stats:
+                candidate_details['speaker_statistics'] = speaker_stats
             
             # Clean up temporary file
             os.unlink(audio_file)
@@ -258,7 +331,8 @@ def stop_recording():
             return jsonify({
                 'status': 'success',
                 'transcript': full_transcript,
-                'candidate_details': candidate_details
+                'candidate_details': candidate_details,
+                'speaker_stats': speaker_stats
             })
         else:
             return jsonify({'status': 'error', 'message': 'No audio data recorded'})
