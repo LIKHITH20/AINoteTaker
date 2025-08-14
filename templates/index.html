@@ -153,6 +153,56 @@
             border: 1px solid #e2e8f0;
         }
 
+        .live-transcript-item {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .live-transcript-item.interviewer {
+            border-left-color: #38a169;
+            background: #f0fff4;
+        }
+
+        .live-transcript-item.candidate {
+            border-left-color: #3182ce;
+            background: #ebf8ff;
+        }
+
+        .live-transcript-item .timestamp {
+            color: #718096;
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .live-transcript-item .speaker {
+            color: #2d3748;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .live-transcript-item .text {
+            color: #2d3748;
+            line-height: 1.6;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         .transcript-item {
             background: #f7fafc;
             border-left: 4px solid #667eea;
@@ -327,6 +377,18 @@
             text-transform: uppercase;
         }
 
+        .live-indicator {
+            background: #38a169;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -346,7 +408,7 @@
     <div class="container">
         <div class="header">
             <h1>🎤 AI Interview Note Taker - Real-time</h1>
-            <p>Continuous transcription with speaker diarization during interviews</p>
+            <p>Live transcription with speaker diarization during interviews</p>
         </div>
 
         <div class="main-content">
@@ -378,16 +440,19 @@
                 <div id="transcriptionStatus" style="display: none;">
                     <div class="transcription-status">
                         <span class="status-dot"></span>
-                        <span>Real-time transcription active in background</span>
+                        <span>Real-time transcription active - processing every 3 seconds</span>
                     </div>
                 </div>
             </div>
 
             <div class="card transcript-section">
-                <h2>📝 Interview Transcript</h2>
+                <h2>📝 Live Interview Transcript</h2>
+                <div id="liveIndicator" style="display: none;">
+                    <div class="live-indicator">🔴 LIVE TRANSCRIPTION</div>
+                </div>
                 <div class="transcript-content" id="transcriptContent">
                     <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
-                        Start recording to begin transcription...
+                        Start recording to see live transcription...
                     </p>
                 </div>
             </div>
@@ -412,6 +477,10 @@
         let analyser;
         let canvas = document.getElementById('audioCanvas');
         let ctx = canvas.getContext('2d');
+        
+        // Store live transcripts
+        let liveTranscripts = [];
+        let transcriptContainer = document.getElementById('transcriptContent');
 
         // Initialize audio context
         function initAudioContext() {
@@ -427,6 +496,7 @@
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
             const transcriptionStatus = document.getElementById('transcriptionStatus');
+            const liveIndicator = document.getElementById('liveIndicator');
 
             if (recording) {
                 indicator.classList.add('recording');
@@ -434,12 +504,14 @@
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
                 transcriptionStatus.style.display = 'block';
+                liveIndicator.style.display = 'block';
             } else {
                 indicator.classList.remove('recording');
                 statusText.textContent = text;
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
                 transcriptionStatus.style.display = 'none';
+                liveIndicator.style.display = 'none';
             }
         }
 
@@ -458,6 +530,10 @@
                 isRecording = true;
                 recordingStartTime = Date.now();
                 updateStatus(true, 'Recording with real-time transcription...');
+                
+                // Clear previous transcripts
+                liveTranscripts = [];
+                updateTranscriptDisplay();
                 
                 // Start duration timer
                 durationInterval = setInterval(updateDuration, 1000);
@@ -549,6 +625,49 @@
             }
             
             draw();
+        }
+
+        // Add live transcript
+        function addLiveTranscript(transcriptData) {
+            const transcriptItem = {
+                text: transcriptData.text,
+                speaker: transcriptData.speaker,
+                timestamp: transcriptData.timestamp,
+                time: transcriptData.time
+            };
+            
+            liveTranscripts.push(transcriptItem);
+            updateTranscriptDisplay();
+        }
+
+        // Update transcript display
+        function updateTranscriptDisplay() {
+            if (liveTranscripts.length === 0) {
+                transcriptContainer.innerHTML = `
+                    <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
+                        Start recording to see live transcription...
+                    </p>
+                `;
+                return;
+            }
+
+            let html = '<h3 style="color: #4a5568; margin-bottom: 15px;">📝 Live Interview Transcript</h3>';
+            
+            liveTranscripts.forEach(item => {
+                const speakerClass = item.speaker.toLowerCase().includes('interviewer') ? 'interviewer' : 'candidate';
+                html += `
+                    <div class="live-transcript-item ${speakerClass}">
+                        <div class="timestamp">${item.time}</div>
+                        <div class="speaker">${item.speaker}</div>
+                        <div class="text">${item.text}</div>
+                    </div>
+                `;
+            });
+
+            transcriptContainer.innerHTML = html;
+            
+            // Scroll to bottom to show latest transcript
+            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
         }
 
         // Display final results with speaker information
@@ -664,6 +783,11 @@
         socket.on('audio_data', (data) => {
             // Handle real-time audio data from server if needed
             console.log('Received audio data:', data.timestamp);
+        });
+
+        socket.on('live_transcript', (data) => {
+            console.log('Received live transcript:', data);
+            addLiveTranscript(data);
         });
 
         // Initialize

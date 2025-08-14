@@ -7,7 +7,7 @@ import queue
 import base64
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 import pyaudio
 import numpy as np
@@ -24,8 +24,8 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = FLASK_CONFIG['secret_key']
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Configure OpenAI
-openai.api_key = os.getenv('OPENAI_API_KEY')
+# Configure OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 class RealTimeAudioProcessor:
     def __init__(self):
@@ -147,6 +147,14 @@ class RealTimeAudioProcessor:
                                     'time': time.strftime('%H:%M:%S')
                                 }
                                 self.live_transcripts.append(transcript_item)
+                                
+                                # Send real-time transcript update to client
+                                socketio.emit('live_transcript', {
+                                    'text': transcript_item['text'],
+                                    'speaker': transcript_item['speaker'],
+                                    'timestamp': transcript_item['timestamp'],
+                                    'time': transcript_item['time']
+                                })
                     
                     # Clean up temporary file
                     try:
@@ -163,9 +171,9 @@ class RealTimeAudioProcessor:
     def _transcribe_with_speakers(self, audio_file_path):
         """Transcribe audio with speaker diarization using OpenAI Whisper"""
         try:
-            # First, transcribe with timestamps
+            # First, transcribe with timestamps using new OpenAI API
             with open(audio_file_path, 'rb') as audio_file:
-                response = openai.Audio.transcribe(
+                response = client.audio.transcriptions.create(
                     model=OPENAI_CONFIG['whisper_model'],
                     file=audio_file,
                     response_format="verbose_json",
@@ -173,8 +181,8 @@ class RealTimeAudioProcessor:
                 )
             
             # Process segments and add speaker labels
-            if response and 'segments' in response:
-                segments = response['segments']
+            if response and hasattr(response, 'segments') and response.segments:
+                segments = response.segments
                 
                 if self.diarization_method == 'simple':
                     # Simple speaker diarization based on timing and content
@@ -344,12 +352,12 @@ def transcribe_audio(audio_file_path):
     """Transcribe audio using OpenAI Whisper API"""
     try:
         with open(audio_file_path, 'rb') as audio_file:
-            transcript = openai.Audio.transcribe(
+            response = client.audio.transcriptions.create(
                 model=OPENAI_CONFIG['whisper_model'],
                 file=audio_file,
                 response_format="text"
             )
-        return transcript
+        return response
     except Exception as e:
         print(f"Error transcribing audio: {e}")
         return "Error transcribing audio"
@@ -376,7 +384,7 @@ def extract_candidate_details(transcript):
         - overall_assessment: Brief overall assessment
         """
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=OPENAI_CONFIG['gpt_model'],
             messages=[
                 {"role": "system", "content": "You are an expert HR analyst. Extract candidate details from interview transcripts in a structured format."},
