@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Note Taker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .recording-controls {
+            text-align: center;
+        }
+
+        .record-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            min-width: 120px;
+        }
+
+        .record-btn:hover {
+            background: #c53030;
+            transform: scale(1.05);
+        }
+
+        .record-btn.recording {
+            background: #38a169;
+            animation: pulse 2s infinite;
+        }
+
+        .record-btn:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .audio-visualizer {
+            width: 100%;
+            height: 200px;
+            background: #f7fafc;
+            border-radius: 10px;
+            margin: 20px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #a0aec0;
+            margin-right: 8px;
+        }
+
+        .status-indicator.recording {
+            background: #e53e3e;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        .transcript-section {
+            grid-column: 1 / -1;
+        }
+
+        .transcript-content {
+            background: #f7fafc;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            line-height: 1.6;
+            border: 1px solid #e2e8f0;
+        }
+
+        .candidate-details {
+            grid-column: 1 / -1;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .detail-item {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .detail-item h4 {
+            color: #4a5568;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-item p {
+            color: #2d3748;
+            line-height: 1.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #feb2b2;
+        }
+
+        .success {
+            background: #c6f6d5;
+            color: #38a169;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #9ae6b4;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 AI Interview Note Taker</h1>
+            <p>Real-time audio transcription and candidate analysis</p>
+        </div>
+
+        <div class="main-content">
+            <div class="card recording-controls">
+                <h2>🎙️ Recording Controls</h2>
+                <div>
+                    <span class="status-indicator" id="statusIndicator"></span>
+                    <span id="statusText">Ready to record</span>
+                </div>
+                <div style="margin: 20px 0;">
+                    <button class="record-btn" id="startBtn" onclick="startRecording()">
+                        🎙️ Start Recording
+                    </button>
+                    <button class="record-btn" id="stopBtn" onclick="stopRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                </div>
+                <div class="audio-visualizer">
+                    <canvas id="audioCanvas" width="400" height="200"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📊 Real-time Audio</h2>
+                <div id="audioStats">
+                    <p>Duration: <span id="duration">00:00</span></p>
+                    <p>Audio Level: <span id="audioLevel">0%</span></p>
+                </div>
+            </div>
+
+            <div class="card transcript-section">
+                <h2>📝 Live Transcript</h2>
+                <div class="transcript-content" id="transcriptContent">
+                    <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
+                        Start recording to see live transcript...
+                    </p>
+                </div>
+            </div>
+
+            <div class="card candidate-details">
+                <h2>👤 Candidate Details</h2>
+                <div id="candidateDetails">
+                    <p style="color: #a0aec0; text-align: center; margin-top: 80px;">
+                        Complete recording to see candidate analysis...
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let isRecording = false;
+        let recordingStartTime = 0;
+        let durationInterval;
+        let audioContext;
+        let analyser;
+        let canvas = document.getElementById('audioCanvas');
+        let ctx = canvas.getContext('2d');
+
+        // Initialize audio context
+        function initAudioContext() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+        }
+
+        // Update status
+        function updateStatus(recording, text) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+
+            if (recording) {
+                indicator.classList.add('recording');
+                statusText.textContent = text;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } else {
+                indicator.classList.remove('recording');
+                statusText.textContent = text;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+
+        // Start recording
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                if (!audioContext) {
+                    initAudioContext();
+                }
+
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                isRecording = true;
+                recordingStartTime = Date.now();
+                updateStatus(true, 'Recording...');
+                
+                // Start duration timer
+                durationInterval = setInterval(updateDuration, 1000);
+                
+                // Start audio visualization
+                visualizeAudio();
+                
+                // Start recording on server
+                fetch('/start_recording', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            console.log('Recording started on server');
+                        }
+                    })
+                    .catch(error => console.error('Error starting recording:', error));
+
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                alert('Error accessing microphone. Please check permissions.');
+            }
+        }
+
+        // Stop recording
+        function stopRecording() {
+            isRecording = false;
+            updateStatus(false, 'Processing...');
+            clearInterval(durationInterval);
+            
+            // Stop recording on server and get results
+            fetch('/stop_recording', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        displayResults(data.transcript, data.candidate_details);
+                        updateStatus(false, 'Ready to record');
+                    } else {
+                        updateStatus(false, 'Error processing audio');
+                        console.error('Error:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error stopping recording:', error);
+                    updateStatus(false, 'Error processing audio');
+                });
+        }
+
+        // Update duration display
+        function updateDuration() {
+            if (isRecording) {
+                const elapsed = Date.now() - recordingStartTime;
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                document.getElementById('duration').textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+        }
+
+        // Audio visualization
+        function visualizeAudio() {
+            if (!isRecording) return;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            function draw() {
+                if (!isRecording) return;
+                
+                requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#667eea';
+                
+                const barWidth = (canvas.width / bufferLength) * 2.5;
+                let barHeight;
+                let x = 0;
+                
+                for (let i = 0; i < bufferLength; i++) {
+                    barHeight = dataArray[i] / 2;
+                    ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                    x += barWidth + 1;
+                }
+                
+                // Update audio level
+                const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+                document.getElementById('audioLevel').textContent = `${Math.round(average)}%`;
+            }
+            
+            draw();
+        }
+
+        // Display results
+        function displayResults(transcript, candidateDetails) {
+            // Display transcript
+            const transcriptContent = document.getElementById('transcriptContent');
+            transcriptContent.innerHTML = `
+                <h3 style="color: #4a5568; margin-bottom: 15px;">📝 Interview Transcript</h3>
+                <div style="white-space: pre-wrap; line-height: 1.6;">${transcript}</div>
+            `;
+
+            // Display candidate details
+            const candidateDetailsDiv = document.getElementById('candidateDetails');
+            
+            if (typeof candidateDetails === 'object' && candidateDetails !== null) {
+                let detailsHTML = '<h3 style="color: #4a5568; margin-bottom: 20px;">👤 Candidate Analysis</h3>';
+                detailsHTML += '<div class="detail-grid">';
+                
+                Object.entries(candidateDetails).forEach(([key, value]) => {
+                    if (key !== 'transcript' && value) {
+                        const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        detailsHTML += `
+                            <div class="detail-item">
+                                <h4>${formattedKey}</h4>
+                                <p>${typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</p>
+                            </div>
+                        `;
+                    }
+                });
+                
+                detailsHTML += '</div>';
+                candidateDetailsDiv.innerHTML = detailsHTML;
+            } else {
+                candidateDetailsDiv.innerHTML = `
+                    <div class="error">
+                        <h3>⚠️ Error Processing Results</h3>
+                        <p>${candidateDetails}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Socket events
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('audio_data', (data) => {
+            // Handle real-time audio data from server if needed
+            console.log('Received audio data:', data.timestamp);
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateStatus(false, 'Ready to record');
+        });
+    </script>
+</body>
+</html>
