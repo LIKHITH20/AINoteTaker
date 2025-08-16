@@ -134,15 +134,23 @@ class RealTimeAudioProcessor:
                     # Transcribe the audio chunk with speaker diarization
                     transcript_data = self._transcribe_with_speakers(audio_file)
                     
-                    if transcript_data and transcript_data.get('segments'):
+                    if transcript_data and hasattr(transcript_data, 'segments') and transcript_data.segments:
                         # Store transcript with speaker information
                         with self.transcript_lock:
-                            for segment in transcript_data['segments']:
+                            for i, segment in enumerate(transcript_data.segments):
+                                # Create a copy of segment data that we can modify
+                                segment_data = {
+                                    'text': segment.text.strip(),
+                                    'start': getattr(segment, 'start', 0),
+                                    'end': getattr(segment, 'end', 0),
+                                    'speaker': self._assign_speaker(i)
+                                }
+                                
                                 transcript_item = {
-                                    'text': segment.get('text', '').strip(),
-                                    'speaker': segment.get('speaker', 'Unknown'),
-                                    'start_time': segment.get('start', 0),
-                                    'end_time': segment.get('end', 0),
+                                    'text': segment_data['text'],
+                                    'speaker': segment_data['speaker'],
+                                    'start_time': segment_data['start'],
+                                    'end_time': segment_data['end'],
                                     'timestamp': time.time(),
                                     'time': time.strftime('%H:%M:%S')
                                 }
@@ -155,6 +163,8 @@ class RealTimeAudioProcessor:
                                     'timestamp': transcript_item['timestamp'],
                                     'time': transcript_item['time']
                                 })
+                                
+                                print(f"Live transcript sent: {transcript_item['speaker']}: {transcript_item['text']}")
                     
                     # Clean up temporary file
                     try:
@@ -168,6 +178,13 @@ class RealTimeAudioProcessor:
                 print(f"Error in transcription worker: {e}")
                 continue
     
+    def _assign_speaker(self, segment_index):
+        """Assign speaker label based on segment index"""
+        if segment_index % 2 == 0:
+            return self.speaker_labels[0]  # Interviewer
+        else:
+            return self.speaker_labels[1]  # Candidate
+    
     def _transcribe_with_speakers(self, audio_file_path):
         """Transcribe audio with speaker diarization using OpenAI Whisper"""
         try:
@@ -180,43 +197,12 @@ class RealTimeAudioProcessor:
                     timestamp_granularities=["segment"]
                 )
             
-            # Process segments and add speaker labels
-            if response and hasattr(response, 'segments') and response.segments:
-                segments = response.segments
-                
-                if self.diarization_method == 'simple':
-                    # Simple speaker diarization based on timing and content
-                    self._apply_simple_speaker_diarization(segments)
-                else:
-                    # Advanced speaker diarization (placeholder for future implementation)
-                    self._apply_advanced_speaker_diarization(segments)
-                
-                return response
-            
-            return None
+            print(f"Transcription response received with {len(response.segments) if hasattr(response, 'segments') else 0} segments")
+            return response
             
         except Exception as e:
             print(f"Error transcribing audio with speakers: {e}")
             return None
-    
-    def _apply_simple_speaker_diarization(self, segments):
-        """Apply simple speaker diarization logic"""
-        if not segments:
-            return
-        
-        # Simple heuristic: alternate speakers based on segment order
-        # This can be improved with more sophisticated speaker detection
-        for i, segment in enumerate(segments):
-            if i % 2 == 0:
-                segment['speaker'] = self.speaker_labels[0]  # Interviewer
-            else:
-                segment['speaker'] = self.speaker_labels[1]  # Candidate
-    
-    def _apply_advanced_speaker_diarization(self, segments):
-        """Apply advanced speaker diarization logic (placeholder)"""
-        # This would integrate with a dedicated speaker diarization service
-        # For now, fall back to simple method
-        self._apply_simple_speaker_diarization(segments)
         
     def stop_recording(self):
         self.is_recording = False

@@ -425,6 +425,9 @@
                     <button class="record-btn" id="stopBtn" onclick="stopRecording()" disabled>
                         ⏹️ Stop Recording
                     </button>
+                    <button class="record-btn" id="testBtn" onclick="testConnection()" style="background: #667eea;">
+                        🔧 Test Connection
+                    </button>
                 </div>
                 <div class="audio-visualizer">
                     <canvas id="audioCanvas" width="400" height="200"></canvas>
@@ -774,10 +777,12 @@
         // Socket events
         socket.on('connect', () => {
             console.log('Connected to server');
+            document.getElementById('statusText').textContent = 'Connected to server';
         });
 
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
+            document.getElementById('statusText').textContent = 'Disconnected from server';
         });
 
         socket.on('audio_data', (data) => {
@@ -789,6 +794,24 @@
             console.log('Received live transcript:', data);
             addLiveTranscript(data);
         });
+
+        // Add error handling for socket
+        socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+            document.getElementById('statusText').textContent = 'Connection error';
+        });
+
+        // Test socket connection
+        function testConnection() {
+            if (socket.connected) {
+                console.log('Socket is connected');
+                alert('Socket is already connected!');
+            } else {
+                console.log('Socket is not connected. Attempting to reconnect...');
+                socket.connect();
+                document.getElementById('statusText').textContent = 'Attempting to reconnect...';
+            }
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
